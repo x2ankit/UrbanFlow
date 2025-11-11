@@ -140,10 +140,13 @@ const Auth: React.FC = () => {
   const handleGoogleLogin = async () => {
     try {
       setIsLoading(true);
+      // Debug: show which redirect URL we will request from Supabase
+      const redirectToUrl = `${REDIRECT_BASE}/${userType}/dashboard`;
+      console.log("OAuth redirect config:", { VITE_APP_URL: import.meta.env.VITE_APP_URL, windowOrigin: window.location.origin, REDIRECT_BASE, redirectToUrl });
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${REDIRECT_BASE}/${userType}/dashboard`,
+          redirectTo: redirectToUrl,
           queryParams: {
             access_type: "offline",
             prompt: "consent",
