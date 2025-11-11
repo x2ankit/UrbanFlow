@@ -13,8 +13,7 @@ export default defineConfig(({ mode }) => ({
   build: {
     rollupOptions: {
       external: [
-        'maplibre-gl',
-        '@maptiler/geocoding'
+        'maplibre-gl'
       ]
     }
   },

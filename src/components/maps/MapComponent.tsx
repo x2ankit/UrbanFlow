@@ -103,11 +103,12 @@ export const MapComponent: React.FC<MapComponentProps> = ({ onLocationSelect, on
         async (position) => {
           const loc = { lat: position.coords.latitude, lng: position.coords.longitude };
           setCurrentLocation(loc);
-          // reverse geocode via MapTiler
+          // reverse geocode via MapTiler REST API
           try {
-            const mod: any = await import('@maptiler/geocoding');
-            const geocoding = mod.geocoding || mod.default || mod;
-            const res: any = await geocoding.forward(`${loc.lat},${loc.lng}`, { key: import.meta.env.VITE_MAPTILER_KEY });
+            const key = import.meta.env.VITE_MAPTILER_KEY;
+            const url = `https://api.maptiler.com/geocoding/${loc.lng},${loc.lat}.json?key=${key}`;
+            const resp = await fetch(url);
+            const res = await resp.json();
             const place = res?.features?.[0];
             const address = place?.place_name || '';
             setPickup(address);
@@ -129,9 +130,10 @@ export const MapComponent: React.FC<MapComponentProps> = ({ onLocationSelect, on
       return;
     }
     try {
-      const mod: any = await import('@maptiler/geocoding');
-      const geocoding = mod.geocoding || mod.default || mod;
-      const res: any = await geocoding.forward(query, { key: import.meta.env.VITE_MAPTILER_KEY });
+      const key = import.meta.env.VITE_MAPTILER_KEY;
+      const url = `https://api.maptiler.com/geocoding/${encodeURIComponent(query)}.json?key=${key}&limit=6`;
+      const resp = await fetch(url);
+      const res = await resp.json();
       const feats = res?.features || [];
       setter(feats);
     } catch (e) {
