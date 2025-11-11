@@ -1,0 +1,15 @@
+# Normalize text files to LF in the repository
+*.js text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+
+# Treat dist build outputs as binary (no CRLF/LF conversions)
+dist/** binary
+
+# Optional: lock common config files to LF
+package.json text eol=lf
+package-lock.json text eol=lf
+pnpm-lock.yaml text eol=lf
