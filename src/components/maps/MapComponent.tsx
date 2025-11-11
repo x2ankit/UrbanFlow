@@ -43,7 +43,8 @@ export const MapComponent: React.FC<MapComponentProps> = ({ onLocationSelect, on
   const [dropoff, setDropoff] = useState('');
   const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [dropoffCoords, setDropoffCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [pickupSuggestions, setPickupSuggestions] = useState<any[]>([]);
+  const [dropoffSuggestions, setDropoffSuggestions] = useState<any[]>([]);
   const [distance, setDistance] = useState<string>('');
   const [duration, setDuration] = useState<string>('');
 
@@ -119,26 +120,35 @@ export const MapComponent: React.FC<MapComponentProps> = ({ onLocationSelect, on
             onLocationSelect?.({ lat: loc.lat, lng: loc.lng, address: '' });
           }
         },
-        (err) => alert('Unable to get your location: ' + err.message)
+        (err) => alert('Unable to get your location: ' + (err?.message || 'permission denied'))
       );
     } else alert('Geolocation not supported');
   };
 
-  const search = async (query: string, setter: (s: any) => void) => {
+  const search = async (query: string, target: 'pickup' | 'dropoff') => {
     if (!query) {
-      setSuggestions([]);
+      if (target === 'pickup') setPickupSuggestions([]);
+      else setDropoffSuggestions([]);
       return;
     }
     try {
       const key = import.meta.env.VITE_MAPTILER_KEY;
+      if (!key) {
+        // hide suggestions if key missing
+        setPickupSuggestions([]);
+        setDropoffSuggestions([]);
+        return;
+      }
       const url = `https://api.maptiler.com/geocoding/${encodeURIComponent(query)}.json?key=${key}&limit=6`;
       const resp = await fetch(url);
       const res = await resp.json();
       const feats = res?.features || [];
-      setter(feats);
+      if (target === 'pickup') setPickupSuggestions(feats);
+      else setDropoffSuggestions(feats);
     } catch (e) {
       console.error('Geocoding error', e);
-      setter([]);
+      if (target === 'pickup') setPickupSuggestions([]);
+      else setDropoffSuggestions([]);
     }
   };
 
@@ -150,13 +160,13 @@ export const MapComponent: React.FC<MapComponentProps> = ({ onLocationSelect, on
       setPickupCoords({ lat, lng });
         onLocationSelect?.({ lat, lng, address, type: 'pickup' });
       mapRef.current?.flyTo({ center: [lng, lat], zoom: 14 });
-      setSuggestions([]);
+      setPickupSuggestions([]);
     } else {
       setDropoff(address);
       setDropoffCoords({ lat, lng });
       onLocationSelect?.({ lat, lng, address, type: 'dropoff' });
       mapRef.current?.flyTo({ center: [lng, lat], zoom: 14 });
-      setSuggestions([]);
+      setDropoffSuggestions([]);
     }
   };
 
@@ -205,12 +215,12 @@ export const MapComponent: React.FC<MapComponentProps> = ({ onLocationSelect, on
             value={pickup}
             onChange={(e) => {
               setPickup(e.target.value);
-              search(e.target.value, setSuggestions);
+              search(e.target.value, 'pickup');
             }}
           />
-          {suggestions.length > 0 && (
+          {pickupSuggestions.length > 0 && (
             <div className="absolute left-0 right-0 bg-white border mt-1 rounded shadow z-50 max-h-52 overflow-auto">
-              {suggestions.map((s, i) => (
+              {pickupSuggestions.map((s, i) => (
                 <div key={i} className="p-2 hover:bg-gray-100 cursor-pointer" onClick={() => onSelectSuggestion(s, 'pickup')}>
                   {s.place_name}
                 </div>
@@ -229,9 +239,18 @@ export const MapComponent: React.FC<MapComponentProps> = ({ onLocationSelect, on
                 value={dropoff}
                 onChange={(e) => {
                   setDropoff(e.target.value);
-                  search(e.target.value, setSuggestions);
+                  search(e.target.value, 'dropoff');
                 }}
               />
+              {dropoffSuggestions.length > 0 && (
+                <div className="absolute left-0 right-0 bg-white border mt-1 rounded shadow z-50 max-h-52 overflow-auto">
+                  {dropoffSuggestions.map((s, i) => (
+                    <div key={i} className="p-2 hover:bg-gray-100 cursor-pointer" onClick={() => onSelectSuggestion(s, 'dropoff')}>
+                      {s.place_name}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="flex gap-2">
