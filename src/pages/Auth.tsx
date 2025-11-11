@@ -107,7 +107,7 @@ const Auth: React.FC = () => {
           password,
           options: {
             data: { user_type: userType },
-            emailRedirectTo: `${window.location.origin}/${userType}/dashboard`,
+            emailRedirectTo: `${REDIRECT_BASE}/${userType}/dashboard`,
           },
         });
 
