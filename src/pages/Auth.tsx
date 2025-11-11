@@ -21,6 +21,10 @@ const Auth: React.FC = () => {
     return !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
   }, []);
 
+  // Prefer an explicit configured site URL for OAuth redirects (useful in CI/production).
+  // Set VITE_APP_URL in Vercel to your production domain (e.g. https://urban-flow-nu.vercel.app).
+  const REDIRECT_BASE = (import.meta.env.VITE_APP_URL as string) || window.location.origin;
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>, isLogin: boolean) => {
     event.preventDefault();
     setIsLoading(true);
@@ -139,7 +143,7 @@ const Auth: React.FC = () => {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/${userType}/dashboard`,
+          redirectTo: `${REDIRECT_BASE}/${userType}/dashboard`,
           queryParams: {
             access_type: "offline",
             prompt: "consent",
