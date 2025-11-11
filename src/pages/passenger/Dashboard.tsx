@@ -8,30 +8,22 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
 import { MapPin, Navigation, Clock, DollarSign, User, LogOut, History } from "lucide-react";
 import { motion } from "framer-motion";
-import { GoogleMap, useJsApiLoader, Marker, Autocomplete, DirectionsRenderer } from "@react-google-maps/api";
-
-const libraries: ("places")[] = ["places"];
+import MapComponent from "@/components/maps/MapComponent";
 
 const PassengerDashboard = () => {
   const { toast } = useToast();
   const [userName, setUserName] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [currentLocation, setCurrentLocation] = useState<google.maps.LatLngLiteral | null>(null);
-  const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [pickup, setPickup] = useState("");
   const [destination, setDestination] = useState("");
   const [distance, setDistance] = useState("");
   const [duration, setDuration] = useState("");
   const [estimatedFare, setEstimatedFare] = useState(0);
 
-  const pickupRef = useRef<google.maps.places.Autocomplete | null>(null);
-  const destinationRef = useRef<google.maps.places.Autocomplete | null>(null);
-  const mapRef = useRef<google.maps.Map | null>(null);
+  // Map-related refs removed - MapComponent handles its own refs and services
 
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
-    libraries,
-  });
+  
 
   useEffect(() => {
     if (navigator.geolocation) {
@@ -81,57 +73,30 @@ const PassengerDashboard = () => {
     };
   }, []);
 
-  const calculateRoute = useCallback(async () => {
-    if (!pickup || !destination) return;
+  // Route calculation moved into MapComponent; use handleRouteCalculated to receive results
 
-    const directionsService = new google.maps.DirectionsService();
-    
-    try {
-      const result = await directionsService.route({
-        origin: pickup,
-        destination: destination,
-        travelMode: google.maps.TravelMode.DRIVING,
-      });
-
-      setDirections(result);
-      const leg = result.routes[0]?.legs?.[0];
-      setDistance(leg?.distance?.text || "");
-      setDuration(leg?.duration?.text || "");
-      
-      // Calculate estimated fare safely
-      const meters = leg?.distance?.value ?? 0;
-      const distanceInKm = meters / 1000;
-      const basePrice = 50; // Base fare in your currency
-      const ratePerKm = 15; // Rate per kilometer
-      const calculatedFare = Math.round(basePrice + distanceInKm * ratePerKm);
-      setEstimatedFare(calculatedFare);
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Could not calculate route",
-        variant: "destructive",
-      });
+  // Handlers for MapComponent
+  const handleLocationSelect = (loc: { lat: number; lng: number; address: string; type?: string }) => {
+    if (loc.type === 'dropoff') {
+      setDestination(loc.address);
+      // we could set other state here if needed
+    } else {
+      // 'pickup' or 'current'
+      setPickup(loc.address);
+      setCurrentLocation({ lat: loc.lat, lng: loc.lng });
     }
-  }, [pickup, destination, toast]);
+  };
 
-  const recentRides = [
-    {
-      id: 1,
-      from: "Downtown Plaza",
-      to: "Airport Terminal 2",
-      date: "2024-01-15",
-      fare: "$45.50",
-      status: "completed",
-    },
-    {
-      id: 2,
-      from: "Central Station",
-      to: "Business District",
-      date: "2024-01-14",
-      fare: "$28.00",
-      status: "completed",
-    },
-  ];
+  const handleRouteCalculated = (distKm: number, mins: number) => {
+    setDistance(`${distKm.toFixed(2)} km`);
+    setDuration(`${mins} mins`);
+    const basePrice = 50;
+    const ratePerKm = 15;
+    const calculatedFare = Math.round(basePrice + distKm * ratePerKm);
+    setEstimatedFare(calculatedFare);
+  };
+
+  // Recent rides removed — real ride history will be loaded from backend when implemented
 
   return (
     <div className="min-h-screen bg-background">
@@ -173,118 +138,8 @@ const PassengerDashboard = () => {
                     Enter your pickup and destination to get started
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium flex items-center gap-2">
-                      <MapPin className="h-4 w-4 text-primary" />
-                      Pickup Location
-                    </label>
-                    {isLoaded ? (
-                      <Autocomplete
-                        onLoad={(auto) => (pickupRef.current = auto)}
-                        onPlaceChanged={() => {
-                          const place = pickupRef.current?.getPlace();
-                          if (place?.formatted_address) {
-                            setPickup(place.formatted_address);
-                            if (place.geometry?.location) {
-                              const location = {
-                                lat: place.geometry.location.lat(),
-                                lng: place.geometry.location.lng(),
-                              };
-                              mapRef.current?.panTo(location);
-                              calculateRoute();
-                            }
-                          }
-                        }}
-                      >
-                        <Input
-                          placeholder="Enter pickup location"
-                          value={pickup}
-                          onChange={(e) => setPickup(e.target.value)}
-                          className="h-12"
-                        />
-                      </Autocomplete>
-                    ) : (
-                      <Input
-                        placeholder="Loading..."
-                        disabled
-                        className="h-12"
-                      />
-                    )}
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="gap-2"
-                      onClick={() => {
-                        if (navigator.geolocation) {
-                          navigator.geolocation.getCurrentPosition(
-                            async (position) => {
-                              const location = {
-                                lat: position.coords.latitude,
-                                lng: position.coords.longitude,
-                              };
-                              setCurrentLocation(location);
-                              mapRef.current?.panTo(location);
-                              
-                              // Reverse geocode to get address
-                              const geocoder = new google.maps.Geocoder();
-                              const results = await geocoder.geocode({ location });
-                              if (results.results[0]) {
-                                setPickup(results.results[0].formatted_address);
-                                calculateRoute();
-                              }
-                            },
-                            () => {
-                              toast({
-                                title: "Error",
-                                description: "Unable to get your location",
-                                variant: "destructive",
-                              });
-                            }
-                          );
-                        }
-                      }}
-                    >
-                      <Navigation className="h-4 w-4" />
-                      Use My Location
-                    </Button>
-                  </div>
-
-                  <Separator />
-
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium flex items-center gap-2">
-                      <MapPin className="h-4 w-4 text-accent" />
-                      Destination
-                    </label>
-                    {isLoaded ? (
-                      <Autocomplete
-                        onLoad={(auto) => (destinationRef.current = auto)}
-                        onPlaceChanged={() => {
-                          const place = destinationRef.current?.getPlace();
-                          if (place?.formatted_address) {
-                            setDestination(place.formatted_address);
-                            if (place.geometry?.location) {
-                              calculateRoute();
-                            }
-                          }
-                        }}
-                      >
-                        <Input
-                          placeholder="Where to?"
-                          value={destination}
-                          onChange={(e) => setDestination(e.target.value)}
-                          className="h-12"
-                        />
-                      </Autocomplete>
-                    ) : (
-                      <Input
-                        placeholder="Loading..."
-                        disabled
-                        className="h-12"
-                      />
-                    )}
-                  </div>
+                <CardContent>
+                  <MapComponent showDirections={true} onLocationSelect={handleLocationSelect} onRouteCalculated={handleRouteCalculated} />
 
                   {pickup && destination && (
                     <motion.div
@@ -329,53 +184,6 @@ const PassengerDashboard = () => {
                 </CardContent>
               </Card>
             </motion.div>
-
-            {/* Map View */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: 0.1 }}
-            >
-              <Card className="shadow-elegant">
-                <CardContent className="p-0">
-                  {isLoaded ? (
-                    <div className="h-96">
-                      <GoogleMap
-                        mapContainerStyle={{ width: "100%", height: "100%" }}
-                        center={currentLocation || { lat: 20.5937, lng: 78.9629 }}
-                        zoom={14}
-                        options={{
-                          zoomControl: true,
-                          streetViewControl: false,
-                          mapTypeControl: false,
-                          fullscreenControl: false,
-                        }}
-                        onLoad={(map) => {
-                          mapRef.current = map;
-                        }}
-                      >
-                        {currentLocation && <Marker position={currentLocation} />}
-                        {directions && (
-                          <DirectionsRenderer
-                            directions={directions}
-                            options={{
-                              polylineOptions: {
-                                strokeColor: "hsl(var(--primary))",
-                                strokeWeight: 5,
-                              },
-                            }}
-                          />
-                        )}
-                      </GoogleMap>
-                    </div>
-                  ) : (
-                    <div className="h-96 bg-muted rounded-lg flex items-center justify-center">
-                      <p className="text-muted-foreground">Loading map...</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </motion.div>
           </div>
 
           {/* Sidebar */}
@@ -389,30 +197,11 @@ const PassengerDashboard = () => {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <History className="h-5 w-5" />
-                    Recent Rides
+                    Your Trips
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {recentRides.map((ride) => (
-                    <div
-                      key={ride.id}
-                      className="p-4 bg-muted rounded-lg space-y-2 hover:bg-muted/80 transition-smooth cursor-pointer"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="space-y-1 flex-1">
-                          <p className="text-sm font-medium">{ride.from}</p>
-                          <p className="text-xs text-muted-foreground">to {ride.to}</p>
-                        </div>
-                        <Badge variant="secondary">{ride.fare}</Badge>
-                      </div>
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>{ride.date}</span>
-                        <Badge variant="outline" className="text-xs">
-                          {ride.status}
-                        </Badge>
-                      </div>
-                    </div>
-                  ))}
+                  <p className="text-sm text-muted-foreground">No recent trips to show. Your completed rides will appear here.</p>
                 </CardContent>
               </Card>
             </motion.div>

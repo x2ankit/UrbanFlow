@@ -1,10 +1,8 @@
-import { useState, useCallback, useRef } from 'react';
-import { GoogleMap, useJsApiLoader, Marker, DirectionsRenderer, Autocomplete } from '@react-google-maps/api';
+import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { MapPin, Navigation, X } from 'lucide-react';
-
-const libraries: ("places" | "geometry")[] = ['places', 'geometry'];
+// import @maptiler/geocoding dynamically to avoid bundling issues
 
 const mapContainerStyle = {
   width: '100%',
@@ -12,315 +10,252 @@ const mapContainerStyle = {
   borderRadius: '12px'
 };
 
-const defaultCenter = {
-  lat: 28.6139, // Delhi coordinates (change to your city)
-  lng: 77.2090
-};
-
 interface MapComponentProps {
-  onLocationSelect?: (location: { lat: number; lng: number; address: string }) => void;
+  onLocationSelect?: (location: { lat: number; lng: number; address: string; type?: 'pickup' | 'dropoff' | 'current' }) => void;
+  onRouteCalculated?: (distanceKm: number, durationMins: number) => void;
   showDirections?: boolean;
   initialPickup?: { lat: number; lng: number };
   initialDropoff?: { lat: number; lng: number };
 }
 
-export const MapComponent = ({ 
-  onLocationSelect, 
-  showDirections = false,
-  initialPickup,
-  initialDropoff
-}: MapComponentProps) => {
-  const { isLoaded, loadError } = useJsApiLoader({
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '',
-    libraries,
-  });
+const haversineDistanceKm = (a: [number, number], b: [number, number]) => {
+  const toRad = (v: number) => (v * Math.PI) / 180;
+  const R = 6371; // km
+  const dLat = toRad(b[1] - a[1]);
+  const dLon = toRad(b[0] - a[0]);
+  const lat1 = toRad(a[1]);
+  const lat2 = toRad(b[1]);
+  const sinDlat = Math.sin(dLat / 2);
+  const sinDlon = Math.sin(dLon / 2);
+  const aa = sinDlat * sinDlat + sinDlon * sinDlon * Math.cos(lat1) * Math.cos(lat2);
+  const c = 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa));
+  return R * c;
+};
 
-  const [map, setMap] = useState<google.maps.Map | null>(null);
+export const MapComponent: React.FC<MapComponentProps> = ({ onLocationSelect, onRouteCalculated, showDirections = false }) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<any>(null);
+  const pickupMarkerRef = useRef<any>(null);
+  const dropoffMarkerRef = useRef<any>(null);
+
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [pickupLocation, setPickupLocation] = useState<{ lat: number; lng: number; address: string } | null>(
-    initialPickup ? { ...initialPickup, address: '' } : null
-  );
-  const [dropoffLocation, setDropoffLocation] = useState<{ lat: number; lng: number; address: string } | null>(
-    initialDropoff ? { ...initialDropoff, address: '' } : null
-  );
-  const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
+  const [pickup, setPickup] = useState('');
+  const [dropoff, setDropoff] = useState('');
+  const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [dropoffCoords, setDropoffCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
   const [distance, setDistance] = useState<string>('');
   const [duration, setDuration] = useState<string>('');
 
-  const pickupAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
-  const dropoffAutocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+  useEffect(() => {
+    const key = import.meta.env.VITE_MAPTILER_KEY;
+    if (!key) {
+      console.error('VITE_MAPTILER_KEY is not set');
+      return;
+    }
+    if (!containerRef.current) return;
 
-  const onMapLoad = useCallback((map: google.maps.Map) => {
-    setMap(map);
+    (async () => {
+      const maplibregl = (await import('maplibre-gl')).default;
+      mapRef.current = new maplibregl.Map({
+        container: containerRef.current,
+        style: `https://api.maptiler.com/maps/streets/style.json?key=${key}`,
+        center: [77.209, 28.6139],
+        zoom: 12,
+      });
+      mapRef.current.addControl(new maplibregl.NavigationControl(), 'top-right');
+    })();
+
+    return () => mapRef.current?.remove();
   }, []);
 
-  const onMapUnmount = useCallback(() => {
-    setMap(null);
-  }, []);
+  useEffect(() => {
+    if (!mapRef.current) return;
+    if (currentLocation) {
+      mapRef.current.setCenter([currentLocation.lng, currentLocation.lat]);
+      mapRef.current.setZoom(14);
+    }
+  }, [currentLocation]);
 
-  // Get current location
+  const setMarker = (markerRef: React.MutableRefObject<any>, coords: { lat: number; lng: number } | null, label?: string) => {
+    if (!mapRef.current) return;
+    if (markerRef.current) {
+      markerRef.current.remove();
+      markerRef.current = null;
+    }
+    if (!coords) return;
+    const el = document.createElement('div');
+    el.style.width = '18px';
+    el.style.height = '18px';
+    el.style.borderRadius = '50%';
+    el.style.background = label === 'A' ? '#3b82f6' : '#ef4444';
+    el.style.border = '2px solid white';
+    // create marker using map's constructor to avoid relying on module namespace
+    markerRef.current = new (mapRef.current.constructor as any).Marker({ element: el }).setLngLat([coords.lng, coords.lat]).addTo(mapRef.current);
+  };
+
+  useEffect(() => setMarker(pickupMarkerRef, pickupCoords, 'A'), [pickupCoords]);
+  useEffect(() => setMarker(dropoffMarkerRef, dropoffCoords, 'B'), [dropoffCoords]);
+
   const getCurrentLocation = () => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const location = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          };
-          setCurrentLocation(location);
-          if (map) {
-            map.panTo(location);
-            map.setZoom(15);
+        async (position) => {
+          const loc = { lat: position.coords.latitude, lng: position.coords.longitude };
+          setCurrentLocation(loc);
+          // reverse geocode via MapTiler
+          try {
+            const mod: any = await import('@maptiler/geocoding');
+            const geocoding = mod.geocoding || mod.default || mod;
+            const res: any = await geocoding.forward(`${loc.lat},${loc.lng}`, { key: import.meta.env.VITE_MAPTILER_KEY });
+            const place = res?.features?.[0];
+            const address = place?.place_name || '';
+            setPickup(address);
+            setPickupCoords(loc);
+            onLocationSelect?.({ lat: loc.lat, lng: loc.lng, address, type: 'current' });
+          } catch (e) {
+            setPickupCoords(loc);
+            onLocationSelect?.({ lat: loc.lat, lng: loc.lng, address: '' });
           }
-          
-          // Reverse geocoding to get address
-          const geocoder = new google.maps.Geocoder();
-          geocoder.geocode({ location }, (results, status) => {
-            if (status === 'OK' && results && results[0]) {
-              const locationWithAddress = {
-                ...location,
-                address: results[0].formatted_address
-              };
-              setPickupLocation(locationWithAddress);
-              onLocationSelect?.(locationWithAddress);
-            }
-          });
         },
-        (error) => {
-          console.error('Error getting location:', error);
-          alert('Error: Unable to get your location. Please enable location services.');
-        }
+        (err) => alert('Unable to get your location: ' + err.message)
       );
-    } else {
-      alert('Geolocation is not supported by your browser.');
-    }
+    } else alert('Geolocation not supported');
   };
 
-  // Handle pickup autocomplete selection
-  const onPickupPlaceChanged = () => {
-    if (pickupAutocompleteRef.current) {
-      const place = pickupAutocompleteRef.current.getPlace();
-      if (place.geometry?.location) {
-        const location = {
-          lat: place.geometry.location.lat(),
-          lng: place.geometry.location.lng(),
-          address: place.formatted_address || place.name || '',
-        };
-        setPickupLocation(location);
-        if (map) {
-          map.panTo({ lat: location.lat, lng: location.lng });
-        }
-        onLocationSelect?.(location);
-      }
-    }
-  };
-
-  // Handle dropoff autocomplete selection
-  const onDropoffPlaceChanged = () => {
-    if (dropoffAutocompleteRef.current) {
-      const place = dropoffAutocompleteRef.current.getPlace();
-      if (place.geometry?.location) {
-        const location = {
-          lat: place.geometry.location.lat(),
-          lng: place.geometry.location.lng(),
-          address: place.formatted_address || place.name || '',
-        };
-        setDropoffLocation(location);
-        if (map) {
-          map.panTo({ lat: location.lat, lng: location.lng });
-        }
-      }
-    }
-  };
-
-  // Calculate directions
-  const calculateRoute = async () => {
-    if (!pickupLocation || !dropoffLocation) {
-      alert('Please select both pickup and dropoff locations');
+  const search = async (query: string, setter: (s: any) => void) => {
+    if (!query) {
+      setSuggestions([]);
       return;
     }
-
-    const directionsService = new google.maps.DirectionsService();
-    
     try {
-      const results = await directionsService.route({
-        origin: { lat: pickupLocation.lat, lng: pickupLocation.lng },
-        destination: { lat: dropoffLocation.lat, lng: dropoffLocation.lng },
-        travelMode: google.maps.TravelMode.DRIVING,
-      });
-
-      setDirections(results);
-      if (results.routes[0]?.legs[0]) {
-        setDistance(results.routes[0].legs[0].distance?.text || '');
-        setDuration(results.routes[0].legs[0].duration?.text || '');
-      }
-    } catch (error) {
-      console.error('Error calculating route:', error);
-      alert('Error calculating route. Please try again.');
+      const mod: any = await import('@maptiler/geocoding');
+      const geocoding = mod.geocoding || mod.default || mod;
+      const res: any = await geocoding.forward(query, { key: import.meta.env.VITE_MAPTILER_KEY });
+      const feats = res?.features || [];
+      setter(feats);
+    } catch (e) {
+      console.error('Geocoding error', e);
+      setter([]);
     }
   };
 
-  // Clear route
-  const clearRoute = () => {
-    setDirections(null);
-    setDistance('');
-    setDuration('');
-    setPickupLocation(null);
-    setDropoffLocation(null);
+  const onSelectSuggestion = (feature: any, target: 'pickup' | 'dropoff') => {
+    const [lng, lat] = feature.center || [0, 0];
+    const address = feature.place_name || feature.text || '';
+      if (target === 'pickup') {
+      setPickup(address);
+      setPickupCoords({ lat, lng });
+        onLocationSelect?.({ lat, lng, address, type: 'pickup' });
+      mapRef.current?.flyTo({ center: [lng, lat], zoom: 14 });
+      setSuggestions([]);
+    } else {
+      setDropoff(address);
+      setDropoffCoords({ lat, lng });
+      onLocationSelect?.({ lat, lng, address, type: 'dropoff' });
+      mapRef.current?.flyTo({ center: [lng, lat], zoom: 14 });
+      setSuggestions([]);
+    }
   };
 
-  if (loadError) {
-    return <div className="text-red-500 p-4">Error loading Google Maps. Please check your API key.</div>;
-  }
+  const calculateRoute = () => {
+    if (!pickupCoords || !dropoffCoords) return;
+    const distKm = haversineDistanceKm([pickupCoords.lng, pickupCoords.lat], [dropoffCoords.lng, dropoffCoords.lat]);
+    setDistance(`${distKm.toFixed(2)} km`);
+    const avgSpeedKmh = 40;
+    const hours = distKm / avgSpeedKmh;
+    const mins = Math.round(hours * 60);
+    setDuration(`${mins} mins`);
+    // notify parent
+    if (onRouteCalculated) onRouteCalculated(distKm, mins);
+    // fit bounds
+    try {
+      const minLng = Math.min(pickupCoords.lng, dropoffCoords.lng);
+      const maxLng = Math.max(pickupCoords.lng, dropoffCoords.lng);
+      const minLat = Math.min(pickupCoords.lat, dropoffCoords.lat);
+      const maxLat = Math.max(pickupCoords.lat, dropoffCoords.lat);
+      mapRef.current?.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 60 });
+    } catch (e) {}
+  };
 
-  if (!isLoaded) {
-    return <div className="p-4">Loading map...</div>;
-  }
+  const clearRoute = () => {
+    setPickup('');
+    setDropoff('');
+    setPickupCoords(null);
+    setDropoffCoords(null);
+    setDistance('');
+    setDuration('');
+  };
 
   return (
     <div className="space-y-4">
-      {/* Controls */}
       <div className="space-y-3">
-        {/* Current Location Button */}
-        <Button 
-          onClick={getCurrentLocation} 
-          className="w-full gap-2"
-          variant="outline"
-        >
+        <Button onClick={getCurrentLocation} className="w-full gap-2" variant="outline">
           <Navigation className="h-4 w-4" />
           Use My Current Location
         </Button>
 
-        {/* Pickup Location Autocomplete */}
         <div className="relative">
           <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-          <Autocomplete
-            onLoad={(autocomplete) => {
-              pickupAutocompleteRef.current = autocomplete;
+          <Input
+            placeholder="Enter pickup location..."
+            className="pl-10"
+            value={pickup}
+            onChange={(e) => {
+              setPickup(e.target.value);
+              search(e.target.value, setSuggestions);
             }}
-            onPlaceChanged={onPickupPlaceChanged}
-          >
-            <Input
-              placeholder="Enter pickup location..."
-              className="pl-10"
-              defaultValue={pickupLocation?.address}
-            />
-          </Autocomplete>
+          />
+          {suggestions.length > 0 && (
+            <div className="absolute left-0 right-0 bg-white border mt-1 rounded shadow z-50 max-h-52 overflow-auto">
+              {suggestions.map((s, i) => (
+                <div key={i} className="p-2 hover:bg-gray-100 cursor-pointer" onClick={() => onSelectSuggestion(s, 'pickup')}>
+                  {s.place_name}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Dropoff Location Autocomplete (if showing directions) */}
         {showDirections && (
           <>
             <div className="relative">
               <MapPin className="absolute left-3 top-3 h-4 w-4 text-red-500" />
-              <Autocomplete
-                onLoad={(autocomplete) => {
-                  dropoffAutocompleteRef.current = autocomplete;
+              <Input
+                placeholder="Enter dropoff location..."
+                className="pl-10"
+                value={dropoff}
+                onChange={(e) => {
+                  setDropoff(e.target.value);
+                  search(e.target.value, setSuggestions);
                 }}
-                onPlaceChanged={onDropoffPlaceChanged}
-              >
-                <Input
-                  placeholder="Enter dropoff location..."
-                  className="pl-10"
-                  defaultValue={dropoffLocation?.address}
-                />
-              </Autocomplete>
+              />
             </div>
 
-            {/* Direction Controls */}
             <div className="flex gap-2">
-              <Button 
-                onClick={calculateRoute} 
-                className="flex-1"
-                disabled={!pickupLocation || !dropoffLocation}
-              >
+              <Button onClick={calculateRoute} className="flex-1" disabled={!pickupCoords || !dropoffCoords}>
                 Get Directions
               </Button>
-              {directions && (
-                <Button 
-                  onClick={clearRoute} 
-                  variant="outline"
-                  size="icon"
-                >
+              {(distance || duration) && (
+                <Button onClick={clearRoute} variant="outline" size="icon">
                   <X className="h-4 w-4" />
                 </Button>
               )}
             </div>
 
-            {/* Distance & Duration Display */}
-            {distance && duration && (
+            {(distance || duration) && (
               <div className="bg-primary/10 rounded-lg p-3 space-y-1">
-                <p className="text-sm font-medium">
-                  Distance: <span className="text-primary">{distance}</span>
-                </p>
-                <p className="text-sm font-medium">
-                  Duration: <span className="text-primary">{duration}</span>
-                </p>
+                <p className="text-sm font-medium">Distance: <span className="text-primary">{distance}</span></p>
+                <p className="text-sm font-medium">Duration: <span className="text-primary">{duration}</span></p>
               </div>
             )}
           </>
         )}
       </div>
 
-      {/* Map */}
-      <GoogleMap
-        mapContainerStyle={mapContainerStyle}
-        center={currentLocation || pickupLocation || defaultCenter}
-        zoom={13}
-        onLoad={onMapLoad}
-        onUnmount={onMapUnmount}
-        options={{
-          zoomControl: true,
-          streetViewControl: false,
-          mapTypeControl: false,
-          fullscreenControl: true,
-        }}
-      >
-        {/* Current Location Marker */}
-        {currentLocation && (
-          <Marker
-            position={currentLocation}
-            icon={{
-              path: google.maps.SymbolPath.CIRCLE,
-              scale: 8,
-              fillColor: '#4285F4',
-              fillOpacity: 1,
-              strokeColor: '#ffffff',
-              strokeWeight: 2,
-            }}
-          />
-        )}
-
-        {/* Pickup Marker */}
-        {pickupLocation && !directions && (
-          <Marker
-            position={{ lat: pickupLocation.lat, lng: pickupLocation.lng }}
-            label="A"
-          />
-        )}
-
-        {/* Dropoff Marker */}
-        {dropoffLocation && !directions && (
-          <Marker
-            position={{ lat: dropoffLocation.lat, lng: dropoffLocation.lng }}
-            label="B"
-          />
-        )}
-
-        {/* Directions */}
-        {directions && (
-          <DirectionsRenderer
-            directions={directions}
-            options={{
-              suppressMarkers: false,
-              polylineOptions: {
-                strokeColor: '#3b82f6',
-                strokeWeight: 5,
-              },
-            }}
-          />
-        )}
-      </GoogleMap>
+      <div ref={containerRef} style={mapContainerStyle as any} />
     </div>
   );
 };
+
+export default MapComponent;
