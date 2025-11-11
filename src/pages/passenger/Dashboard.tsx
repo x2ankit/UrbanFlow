@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,6 +14,8 @@ const libraries: ("places")[] = ["places"];
 
 const PassengerDashboard = () => {
   const { toast } = useToast();
+  const [userName, setUserName] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [currentLocation, setCurrentLocation] = useState<google.maps.LatLngLiteral | null>(null);
   const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
   const [pickup, setPickup] = useState("");
@@ -49,6 +52,34 @@ const PassengerDashboard = () => {
       );
     }
   }, [toast]);
+
+  // Load logged-in user's profile (name + avatar) from Supabase
+  useEffect(() => {
+    let mounted = true;
+    const loadUser = async () => {
+      try {
+        const { data, error } = await supabase.auth.getUser();
+        if (error) return;
+        const user = data?.user;
+        if (!user) return;
+  // Try several metadata locations for name and avatar
+  const anyUser = user as any;
+  const meta = anyUser?.user_metadata || anyUser?.raw_user_meta_data || {};
+  const name = meta?.full_name || meta?.name || user.email?.split("@")[0] || null;
+  const avatar = meta?.avatar_url || meta?.picture || meta?.avatar || null;
+        if (mounted) {
+          setUserName(name);
+          setAvatarUrl(avatar);
+        }
+      } catch (err) {
+        // ignore
+      }
+    };
+    loadUser();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const calculateRoute = useCallback(async () => {
     if (!pickup || !destination) return;
@@ -110,9 +141,13 @@ const PassengerDashboard = () => {
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-semibold">UrbanFlow</h1>
             <div className="flex items-center gap-4">
-              <Badge variant="secondary" className="gap-2">
-                <User className="h-3 w-3" />
-                John Doe
+              <Badge variant="secondary" className="gap-2 flex items-center">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="avatar" className="h-6 w-6 rounded-full object-cover" />
+                ) : (
+                  <User className="h-3 w-3" />
+                )}
+                <span>{userName || "John Doe"}</span>
               </Badge>
               <Button variant="ghost" size="icon">
                 <LogOut className="h-5 w-5" />
