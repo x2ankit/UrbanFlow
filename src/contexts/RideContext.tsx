@@ -147,7 +147,21 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 export function useRide() {
   const ctx = useContext(RideContext);
-  if (!ctx) throw new Error("useRide must be used within RideProvider");
+  if (!ctx) {
+    // Don't throw in production UI — return a safe no-op stub so pages don't crash
+    console.warn("useRide called outside RideProvider — returning no-op fallback");
+    const noop = async () => null;
+    const stub = {
+      createRideRequest: noop,
+      acceptRide: async () => false,
+      subscribeToRide: (_rideId: string, _cb: (r: any) => void) => ({ unsubscribe: () => {} }),
+      subscribeNearbyRideRequests: (_driverId: string, _cb: (r: any) => void) => ({ unsubscribe: () => {} }),
+      subscribeDriverLocations: (_driverId: string, _cb: (loc: any) => void) => ({ unsubscribe: () => {} }),
+      subscribeOffers: (_driverId: string, _cb: (offer: any) => void) => ({ unsubscribe: () => {} }),
+      estimateETA: (_distanceKm: number) => null,
+    } as unknown as typeof ctx;
+    return stub;
+  }
   return ctx;
 }
 

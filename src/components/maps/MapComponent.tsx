@@ -45,6 +45,8 @@ export const MapComponent: React.FC<MapComponentProps> = ({ onLocationSelect, on
   const [dropoffCoords, setDropoffCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [pickupSuggestions, setPickupSuggestions] = useState<any[]>([]);
   const [dropoffSuggestions, setDropoffSuggestions] = useState<any[]>([]);
+  const [pickupIndex, setPickupIndex] = useState<number>(-1);
+  const [dropoffIndex, setDropoffIndex] = useState<number>(-1);
   const [distance, setDistance] = useState<string>('');
   const [duration, setDuration] = useState<string>('');
 
@@ -57,6 +59,14 @@ export const MapComponent: React.FC<MapComponentProps> = ({ onLocationSelect, on
     if (!containerRef.current) return;
 
     (async () => {
+      // ensure maplibre css is loaded (some deployments miss this)
+      if (!document.getElementById('maplibre-css')) {
+        const link = document.createElement('link');
+        link.id = 'maplibre-css';
+        link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css';
+        document.head.appendChild(link);
+      }
       const maplibregl = (await import('maplibre-gl')).default;
       mapRef.current = new maplibregl.Map({
         container: containerRef.current,
@@ -161,12 +171,14 @@ export const MapComponent: React.FC<MapComponentProps> = ({ onLocationSelect, on
         onLocationSelect?.({ lat, lng, address, type: 'pickup' });
       mapRef.current?.flyTo({ center: [lng, lat], zoom: 14 });
       setPickupSuggestions([]);
+      setPickupIndex(-1);
     } else {
       setDropoff(address);
       setDropoffCoords({ lat, lng });
       onLocationSelect?.({ lat, lng, address, type: 'dropoff' });
       mapRef.current?.flyTo({ center: [lng, lat], zoom: 14 });
       setDropoffSuggestions([]);
+      setDropoffIndex(-1);
     }
   };
 
@@ -217,11 +229,26 @@ export const MapComponent: React.FC<MapComponentProps> = ({ onLocationSelect, on
               setPickup(e.target.value);
               search(e.target.value, 'pickup');
             }}
+            onKeyDown={(e) => {
+              if (pickupSuggestions.length === 0) return;
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setPickupIndex((i) => Math.min(i + 1, pickupSuggestions.length - 1));
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setPickupIndex((i) => Math.max(i - 1, 0));
+              } else if (e.key === 'Enter') {
+                if (pickupIndex >= 0 && pickupIndex < pickupSuggestions.length) {
+                  e.preventDefault();
+                  onSelectSuggestion(pickupSuggestions[pickupIndex], 'pickup');
+                }
+              }
+            }}
           />
           {pickupSuggestions.length > 0 && (
             <div className="absolute left-0 right-0 bg-white border mt-1 rounded shadow z-50 max-h-52 overflow-auto">
               {pickupSuggestions.map((s, i) => (
-                <div key={i} className="p-2 hover:bg-gray-100 cursor-pointer" onClick={() => onSelectSuggestion(s, 'pickup')}>
+                <div key={i} className={("p-2 hover:bg-gray-100 cursor-pointer " + (i === pickupIndex ? 'bg-gray-100' : ''))} onMouseEnter={() => setPickupIndex(i)} onClick={() => onSelectSuggestion(s, 'pickup')}>
                   {s.place_name}
                 </div>
               ))}
@@ -241,11 +268,26 @@ export const MapComponent: React.FC<MapComponentProps> = ({ onLocationSelect, on
                   setDropoff(e.target.value);
                   search(e.target.value, 'dropoff');
                 }}
+                onKeyDown={(e) => {
+                  if (dropoffSuggestions.length === 0) return;
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setDropoffIndex((i) => Math.min(i + 1, dropoffSuggestions.length - 1));
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setDropoffIndex((i) => Math.max(i - 1, 0));
+                  } else if (e.key === 'Enter') {
+                    if (dropoffIndex >= 0 && dropoffIndex < dropoffSuggestions.length) {
+                      e.preventDefault();
+                      onSelectSuggestion(dropoffSuggestions[dropoffIndex], 'dropoff');
+                    }
+                  }
+                }}
               />
               {dropoffSuggestions.length > 0 && (
                 <div className="absolute left-0 right-0 bg-white border mt-1 rounded shadow z-50 max-h-52 overflow-auto">
                   {dropoffSuggestions.map((s, i) => (
-                    <div key={i} className="p-2 hover:bg-gray-100 cursor-pointer" onClick={() => onSelectSuggestion(s, 'dropoff')}>
+                    <div key={i} className={("p-2 hover:bg-gray-100 cursor-pointer " + (i === dropoffIndex ? 'bg-gray-100' : ''))} onMouseEnter={() => setDropoffIndex(i)} onClick={() => onSelectSuggestion(s, 'dropoff')}>
                       {s.place_name}
                     </div>
                   ))}

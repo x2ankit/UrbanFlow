@@ -3,6 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { RideProvider } from "./contexts/RideContext";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import Auth from "./pages/Auth";
@@ -10,6 +11,7 @@ import PassengerDashboard from "./pages/passenger/Dashboard";
 import CaptainDashboard from "./pages/captain/Dashboard";
 import DriverDashboard from "./pages/DriverDashboard";
 import RideBooking from "./pages/RideBooking";
+import RiderRide from "./pages/RiderRide";
 
 const queryClient = new QueryClient();
 
@@ -18,11 +20,13 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <RideProvider>
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<Auth />} />
           <Route path="/ride-booking" element={<RideBooking />} />
+          <Route path="/rider/ride" element={<RiderRide />} />
           {/* Temporarily bypass auth for development */}
           <Route path="/passenger/dashboard" element={<PassengerDashboard />} />
           <Route path="/captain/dashboard" element={<CaptainDashboard />} />
@@ -35,6 +39,7 @@ const App = () => (
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
+      </RideProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );

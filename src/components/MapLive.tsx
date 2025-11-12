@@ -17,8 +17,26 @@ export const MapLive: React.FC<Props> = ({ center, zoom = 13, driver, pickup, dr
    useEffect(() => {
      if (!containerRef.current) return;
  
-     (async () => {
-       const maplibregl = (await import('maplibre-gl')).default;
+    (async () => {
+      const key = import.meta.env.VITE_MAPTILER_KEY;
+      if (!key) {
+        console.error('VITE_MAPTILER_KEY is not set - MapLive will not initialize');
+        if (containerRef.current) {
+          containerRef.current.innerHTML = '<div class="p-4 text-sm text-red-600">MapTiler API key missing. Set <code>VITE_MAPTILER_KEY</code> in your env and redeploy.</div>';
+        }
+        return;
+      }
+
+      // ensure maplibre css is loaded
+      if (!document.getElementById('maplibre-css')) {
+        const link = document.createElement('link');
+        link.id = 'maplibre-css';
+        link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css';
+        document.head.appendChild(link);
+      }
+
+      const maplibregl = (await import('maplibre-gl')).default;
        const map = new maplibregl.Map({
          container: containerRef.current,
          style: styleUrl || `https://api.maptiler.com/maps/streets/style.json?key=${import.meta.env.VITE_MAPTILER_KEY}`,

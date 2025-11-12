@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
+import { useRide } from "@/contexts/RideContext";
 import { MapPin, Navigation, Clock, DollarSign, User, LogOut, History } from "lucide-react";
 import { motion } from "framer-motion";
 import MapComponent from "@/components/maps/MapComponent";
@@ -17,6 +18,8 @@ const PassengerDashboard = () => {
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [pickup, setPickup] = useState("");
   const [destination, setDestination] = useState("");
+  const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [dropoffCoords, setDropoffCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [distance, setDistance] = useState("");
   const [duration, setDuration] = useState("");
   const [estimatedFare, setEstimatedFare] = useState(0);
@@ -44,6 +47,23 @@ const PassengerDashboard = () => {
       );
     }
   }, [toast]);
+
+  // Small runtime diagnostics to help debug deployment issues (visible on page)
+  const [maptilerKeyPresent, setMaptilerKeyPresent] = useState<boolean | null>(null);
+  const [geoPermission, setGeoPermission] = useState<string | null>(null);
+  useEffect(() => {
+    setMaptilerKeyPresent(Boolean(import.meta.env.VITE_MAPTILER_KEY));
+    if ((navigator as any).permissions && (navigator as any).permissions.query) {
+      try {
+        (navigator as any).permissions.query({ name: 'geolocation' }).then((p: any) => {
+          setGeoPermission(p.state);
+          p.onchange = () => setGeoPermission(p.state);
+        });
+      } catch (e) {
+        // ignore
+      }
+    }
+  }, []);
 
   // Load logged-in user's profile (name + avatar) from Supabase
   useEffect(() => {
@@ -79,10 +99,11 @@ const PassengerDashboard = () => {
   const handleLocationSelect = (loc: { lat: number; lng: number; address: string; type?: string }) => {
     if (loc.type === 'dropoff') {
       setDestination(loc.address);
-      // we could set other state here if needed
+      setDropoffCoords({ lat: loc.lat, lng: loc.lng });
     } else {
       // 'pickup' or 'current'
       setPickup(loc.address);
+      setPickupCoords({ lat: loc.lat, lng: loc.lng });
       setCurrentLocation({ lat: loc.lat, lng: loc.lng });
     }
   };
@@ -94,6 +115,35 @@ const PassengerDashboard = () => {
     const ratePerKm = 15;
     const calculatedFare = Math.round(basePrice + distKm * ratePerKm);
     setEstimatedFare(calculatedFare);
+  };
+
+  // use RideContext to create ride requests
+  let createRideRequest: any = null;
+  try {
+    const ride = useRide();
+    createRideRequest = ride.createRideRequest;
+  } catch (e) {
+    createRideRequest = null;
+  }
+
+  const handleConfirmRide = async () => {
+    if (!pickupCoords || !dropoffCoords) return toast({ title: 'Error', description: 'Please select pickup and dropoff on the map first', variant: 'destructive' });
+    if (!createRideRequest) return toast({ title: 'Info', description: 'Ride booking backend not available in this environment. Use RiderRide for demo.', variant: 'default' });
+
+    // ensure rider exists
+    const supabaseClient = supabase as any;
+    const user = (await supabaseClient.auth.getUser()).data?.user;
+    if (!user) return toast({ title: 'Sign in required', description: 'Please sign in before booking a ride', variant: 'destructive' });
+
+    const { data } = await supabaseClient.from('riders').upsert([{ id: user.id, name: user.user_metadata?.full_name || user.email }], { onConflict: 'id' }).select().single();
+    const riderId = data?.id || user.id;
+
+    const created = await createRideRequest(riderId, { lat: pickupCoords.lat, lon: pickupCoords.lng }, { lat: dropoffCoords.lat, lon: dropoffCoords.lng });
+    if (created) {
+      toast({ title: 'Ride requested', description: 'Nearby drivers will be notified.', variant: 'default' });
+    } else {
+      toast({ title: 'Error', description: 'Failed to create ride request', variant: 'destructive' });
+    }
   };
 
   // Recent rides removed — real ride history will be loaded from backend when implemented
@@ -139,7 +189,14 @@ const PassengerDashboard = () => {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <MapComponent showDirections={true} onLocationSelect={handleLocationSelect} onRouteCalculated={handleRouteCalculated} />
+                    {/* Diagnostic banner: shows MapTiler key presence and geolocation permission state */}
+                    <div className="mb-3 text-sm text-muted-foreground">
+                      <strong>Runtime diagnostics:</strong>
+                      <div>MapTiler key present: {maptilerKeyPresent ? <span className="text-green-600">Yes</span> : <span className="text-red-600">No</span>}</div>
+                      <div>Geolocation permission: {geoPermission ?? <span className="text-yellow-600">unknown</span>}</div>
+                      <div className="text-xs text-muted-foreground">If MapTiler key is missing, set <code>VITE_MAPTILER_KEY</code> in Vercel and redeploy.</div>
+                    </div>
+                    <MapComponent showDirections={true} onLocationSelect={handleLocationSelect} onRouteCalculated={handleRouteCalculated} />
 
                   {pickup && destination && (
                     <motion.div
@@ -176,7 +233,7 @@ const PassengerDashboard = () => {
                         </CardContent>
                       </Card>
 
-                      <Button className="w-full h-12 mt-4" size="lg">
+                      <Button onClick={handleConfirmRide} className="w-full h-12 mt-4" size="lg">
                         Confirm Ride
                       </Button>
                     </motion.div>
