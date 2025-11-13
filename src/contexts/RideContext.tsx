@@ -59,9 +59,12 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const nearby = await supabase.rpc('nearby_drivers', { p_lat: pickup.lat, p_lon: pickup.lon, p_radius_km: 3 });
       const drivers = (nearby.data || []) as Array<any>;
+      console.info('nearby_drivers result', drivers?.length || 0);
       if (drivers.length > 0) {
         const inserts = drivers.map((d) => ({ ride_id: ride.id, driver_id: d.driver_id }));
-        await supabase.from('ride_offers').insert(inserts);
+        const { data: offersData, error: offersError } = await supabase.from('ride_offers').insert(inserts).select();
+        if (offersError) console.warn('Failed to insert ride_offers', offersError);
+        else console.info('ride_offers inserted', offersData?.length || 0);
       }
     } catch (e) {
       console.warn('Failed to create ride offers', e);
@@ -93,8 +96,9 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const subscribeNearbyRideRequests = (driverId: string, cb: (r: RideRequest) => void) => {
     // Driver listens for new pending ride_requests; client should filter by distance using driver's current location
-    const channel = supabase.channel(`ride-requests-pending`) 
+    const channel = supabase.channel(`ride-requests-pending`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "ride_requests", filter: `status=eq.pending` }, (payload) => {
+        console.info('subscribeNearbyRideRequests payload', payload);
         cb(payload.new as RideRequest);
       })
       .subscribe();
@@ -105,9 +109,12 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const subscribeOffers = (driverId: string, cb: (offer: { id: string; ride_id: string; driver_id: string }) => void) => {
     const channel = supabase.channel(`ride-offers-${driverId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ride_offers', filter: `driver_id=eq.${driverId}` }, (payload) => {
+        console.info('subscribeOffers payload for driver', driverId, payload.new);
         cb(payload.new as any);
       })
-      .subscribe();
+      .subscribe((status) => {
+        console.info('subscribeOffers channel status', driverId, status);
+      });
 
     return { unsubscribe: () => channel.unsubscribe() };
   };
@@ -128,14 +135,16 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const subscribeDriverLocations = (driverId: string, cb: (loc: DriverLocation) => void) => {
-    const channel = supabase.channel(`driver-locations`) 
+    const channel = supabase.channel(`driver-locations`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "driver_locations" }, (payload) => {
+        console.info('driver_locations insert', payload.new);
         cb(payload.new as DriverLocation);
       })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "driver_locations" }, (payload) => {
+        console.info('driver_locations update', payload.new);
         cb(payload.new as DriverLocation);
       })
-      .subscribe();
+      .subscribe((status) => console.info('subscribeDriverLocations status', status));
 
     return { unsubscribe: () => channel.unsubscribe() };
   };
