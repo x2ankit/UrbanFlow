@@ -43,6 +43,7 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const fare = calculateFare(distance);
 
     try {
+      const fareRounded = Math.round(fare);
       const { data, error } = await supabase.from("ride_requests").insert([
         {
           rider_id: riderId,
@@ -51,7 +52,7 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
           drop_lat: drop.lat,
           drop_lon: drop.lon,
           distance_km: distance,
-          fare_rupees: fare,
+          fare_rupees: fareRounded,
           status: "pending",
         },
       ]).select().single();
@@ -61,7 +62,8 @@ export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { error };
       }
 
-      const ride = data as RideRequest;
+  // Postgres fare column expects an integer number of rupees; round to nearest rupee
+  const ride = data as RideRequest;
 
       // Create ride_offers for nearby drivers so they receive targeted realtime notifications.
       try {
