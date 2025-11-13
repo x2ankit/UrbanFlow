@@ -54,6 +54,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({ onLocationSelect, on
     const key = import.meta.env.VITE_MAPTILER_KEY;
     if (!key) {
       console.error('VITE_MAPTILER_KEY is not set');
+      setMapInitError('MapTiler API key is not configured. Please set VITE_MAPTILER_KEY');
       return;
     }
     if (!containerRef.current) return;
@@ -67,14 +68,19 @@ export const MapComponent: React.FC<MapComponentProps> = ({ onLocationSelect, on
         link.href = 'https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css';
         document.head.appendChild(link);
       }
-      const maplibregl = (await import('maplibre-gl')).default;
-      mapRef.current = new maplibregl.Map({
+      try {
+        const maplibregl = (await import('maplibre-gl')).default;
+        mapRef.current = new maplibregl.Map({
         container: containerRef.current,
         style: `https://api.maptiler.com/maps/streets/style.json?key=${key}`,
         center: [77.209, 28.6139],
         zoom: 12,
       });
       mapRef.current.addControl(new maplibregl.NavigationControl(), 'top-right');
+      } catch (e) {
+        console.error('Failed to initialize maplibre', e);
+        setMapInitError('Failed to initialize map library. Check console for details.');
+      }
     })();
 
     return () => mapRef.current?.remove();
