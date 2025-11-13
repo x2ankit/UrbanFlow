@@ -11,6 +11,7 @@ export const DriverDashboard: React.FC = () => {
   const [selectedRide, setSelectedRide] = useState<any | null>(null);
   const [otpInput, setOtpInput] = useState("");
   const [driverLoc, setDriverLoc] = useState<{ lat: number; lon: number } | null>(null);
+  const [realtimeStatus, setRealtimeStatus] = useState<string>('unknown');
   const watchRef = useRef<number | null>(null);
 
   const { subscribeOffers, acceptRide, subscribeToRide } = useRide();
@@ -39,6 +40,12 @@ export const DriverDashboard: React.FC = () => {
         }
       } catch (e) {
         console.error("failed to load ride for offer", e);
+      }
+    }, (status) => {
+      try {
+        setRealtimeStatus(typeof status === 'string' ? status : JSON.stringify(status));
+      } catch (e) {
+        setRealtimeStatus('unknown');
       }
     });
     return () => sub.unsubscribe();
@@ -111,6 +118,7 @@ export const DriverDashboard: React.FC = () => {
         <h1 className="text-2xl font-bold">Driver Dashboard</h1>
         <div className="flex items-center gap-4">
           <div className="text-sm text-muted-foreground">Status: <span className="ml-2 font-medium text-green-600">Online</span></div>
+          <div className="text-sm text-muted-foreground">Realtime: <span className="ml-2 font-medium">{realtimeStatus}</span></div>
         </div>
       </div>
 

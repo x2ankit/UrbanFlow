@@ -36,8 +36,12 @@ export const RiderRide: React.FC = () => {
 
   const bookRide = async () => {
     if (!pickupLat || !pickupLon || !dropLat || !dropLon || !riderId) return alert("Fill pickup & drop coordinates (for demo)");
-    const created = await createRideRequest(riderId, { lat: pickupLat, lon: pickupLon }, { lat: dropLat, lon: dropLon });
-    if (created) setRideId(created.id);
+    const result = await createRideRequest(riderId, { lat: pickupLat, lon: pickupLon }, { lat: dropLat, lon: dropLon });
+    if (result?.ride) setRideId(result.ride.id);
+    else {
+      console.error('bookRide failed', result?.error);
+      alert('Failed to create ride request: ' + (result?.error?.message || String(result?.error || 'unknown')));
+    }
   };
 
   return (

@@ -18,59 +18,71 @@ type RideRequest = {
 
 type DriverLocation = { driver_id: string; lat: number; lon: number; updated_at?: string };
 
+type CreateRideResult = { ride?: RideRequest; error?: any };
+
 type RideContextValue = {
-  createRideRequest: (riderId: string, pickup: { lat: number; lon: number }, drop: { lat: number; lon: number }) => Promise<RideRequest | null>;
+  createRideRequest: (riderId: string, pickup: { lat: number; lon: number }, drop: { lat: number; lon: number }) => Promise<CreateRideResult>;
   acceptRide: (rideId: string, driverId: string) => Promise<boolean>;
   subscribeToRide: (rideId: string, cb: (r: RideRequest) => void) => { unsubscribe: () => void };
   subscribeNearbyRideRequests: (driverId: string, cb: (r: RideRequest) => void) => { unsubscribe: () => void };
   subscribeDriverLocations: (driverId: string, cb: (loc: DriverLocation) => void) => { unsubscribe: () => void };
-  subscribeOffers: (driverId: string, cb: (offer: { id: string; ride_id: string; driver_id: string }) => void) => { unsubscribe: () => void };
+  // subscribeOffers accepts an optional status callback to surface realtime channel status to the caller
+  subscribeOffers: (
+    driverId: string,
+    cb: (offer: { id: string; ride_id: string; driver_id: string }) => void,
+    statusCb?: (status: any) => void
+  ) => { unsubscribe: () => void };
   estimateETA: (distanceKm: number) => number | null;
 };
 
 const RideContext = createContext<RideContextValue | undefined>(undefined);
 
 export const RideProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const createRideRequest = async (riderId: string, pickup: { lat: number; lon: number }, drop: { lat: number; lon: number }) => {
+  const createRideRequest = async (riderId: string, pickup: { lat: number; lon: number }, drop: { lat: number; lon: number }) : Promise<CreateRideResult> => {
     const distance = haversineDistanceKm(pickup.lat, pickup.lon, drop.lat, drop.lon);
     const fare = calculateFare(distance);
 
-    const { data, error } = await supabase.from("ride_requests").insert([
-      {
-        rider_id: riderId,
-        pickup_lat: pickup.lat,
-        pickup_lon: pickup.lon,
-        drop_lat: drop.lat,
-        drop_lon: drop.lon,
-        distance_km: distance,
-        fare_rupees: fare,
-        status: "pending",
-      },
-    ]).select().single();
-
-    if (error) {
-      console.error("createRideRequest error", error);
-      return null;
-    }
-
-    const ride = data as RideRequest;
-
-    // Create ride_offers for nearby drivers so they receive targeted realtime notifications.
     try {
-      const nearby = await supabase.rpc('nearby_drivers', { p_lat: pickup.lat, p_lon: pickup.lon, p_radius_km: 3 });
-      const drivers = (nearby.data || []) as Array<any>;
-      console.info('nearby_drivers result', drivers?.length || 0);
-      if (drivers.length > 0) {
-        const inserts = drivers.map((d) => ({ ride_id: ride.id, driver_id: d.driver_id }));
-        const { data: offersData, error: offersError } = await supabase.from('ride_offers').insert(inserts).select();
-        if (offersError) console.warn('Failed to insert ride_offers', offersError);
-        else console.info('ride_offers inserted', offersData?.length || 0);
-      }
-    } catch (e) {
-      console.warn('Failed to create ride offers', e);
-    }
+      const { data, error } = await supabase.from("ride_requests").insert([
+        {
+          rider_id: riderId,
+          pickup_lat: pickup.lat,
+          pickup_lon: pickup.lon,
+          drop_lat: drop.lat,
+          drop_lon: drop.lon,
+          distance_km: distance,
+          fare_rupees: fare,
+          status: "pending",
+        },
+      ]).select().single();
 
-    return ride;
+      if (error) {
+        console.error("createRideRequest insert error", error);
+        return { error };
+      }
+
+      const ride = data as RideRequest;
+
+      // Create ride_offers for nearby drivers so they receive targeted realtime notifications.
+      try {
+        const nearby = await supabase.rpc('nearby_drivers', { p_lat: pickup.lat, p_lon: pickup.lon, p_radius_km: 3 });
+        const drivers = (nearby.data || []) as Array<any>;
+        console.info('nearby_drivers result', drivers?.length || 0);
+        if (drivers.length > 0) {
+          const inserts = drivers.map((d) => ({ ride_id: ride.id, driver_id: d.driver_id }));
+          const { data: offersData, error: offersError } = await supabase.from('ride_offers').insert(inserts).select();
+          if (offersError) console.warn('Failed to insert ride_offers', offersError);
+          else console.info('ride_offers inserted', offersData?.length || 0);
+        }
+      } catch (e) {
+        console.warn('Failed to create ride offers', e);
+      }
+
+      return { ride };
+    } catch (err) {
+      console.error('createRideRequest unexpected error', err);
+      return { error: err };
+    }
   };
 
   const acceptRide = async (rideId: string, driverId: string) => {

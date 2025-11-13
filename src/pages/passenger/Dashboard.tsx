@@ -10,9 +10,11 @@ import { useRide } from "@/contexts/RideContext";
 import { MapPin, Navigation, Clock, DollarSign, User, LogOut, History } from "lucide-react";
 import { motion } from "framer-motion";
 import MapComponent from "@/components/maps/MapComponent";
+import { calculateFare } from '@/lib/rideHelpers';
 
 const PassengerDashboard = () => {
   const { toast } = useToast();
+
   const [userName, setUserName] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -23,10 +25,6 @@ const PassengerDashboard = () => {
   const [distance, setDistance] = useState("");
   const [duration, setDuration] = useState("");
   const [estimatedFare, setEstimatedFare] = useState(0);
-
-  // Map-related refs removed - MapComponent handles its own refs and services
-
-  
 
   useEffect(() => {
     if (navigator.geolocation) {
@@ -47,23 +45,6 @@ const PassengerDashboard = () => {
       );
     }
   }, [toast]);
-
-  // Small runtime diagnostics to help debug deployment issues (visible on page)
-  const [maptilerKeyPresent, setMaptilerKeyPresent] = useState<boolean | null>(null);
-  const [geoPermission, setGeoPermission] = useState<string | null>(null);
-  useEffect(() => {
-    setMaptilerKeyPresent(Boolean(import.meta.env.VITE_MAPTILER_KEY));
-    if ((navigator as any).permissions && (navigator as any).permissions.query) {
-      try {
-        (navigator as any).permissions.query({ name: 'geolocation' }).then((p: any) => {
-          setGeoPermission(p.state);
-          p.onchange = () => setGeoPermission(p.state);
-        });
-      } catch (e) {
-        // ignore
-      }
-    }
-  }, []);
 
   // Load logged-in user's profile (name + avatar) from Supabase
   useEffect(() => {
@@ -111,10 +92,9 @@ const PassengerDashboard = () => {
   const handleRouteCalculated = (distKm: number, mins: number) => {
     setDistance(`${distKm.toFixed(2)} km`);
     setDuration(`${mins} mins`);
-    const basePrice = 50;
-    const ratePerKm = 15;
-    const calculatedFare = Math.round(basePrice + distKm * ratePerKm);
-    setEstimatedFare(calculatedFare);
+    // Use shared fare calculation so UI matches backend logic
+    const fare = calculateFare(distKm);
+    setEstimatedFare(Math.round(fare));
   };
 
   // use RideContext to create ride requests
@@ -138,11 +118,19 @@ const PassengerDashboard = () => {
     const { data } = await supabaseClient.from('riders').upsert([{ id: user.id, name: user.user_metadata?.full_name || user.email }], { onConflict: 'id' }).select().single();
     const riderId = data?.id || user.id;
 
-    const created = await createRideRequest(riderId, { lat: pickupCoords.lat, lon: pickupCoords.lng }, { lat: dropoffCoords.lat, lon: dropoffCoords.lng });
-    if (created) {
-      toast({ title: 'Ride requested', description: 'Nearby drivers will be notified.', variant: 'default' });
-    } else {
-      toast({ title: 'Error', description: 'Failed to create ride request', variant: 'destructive' });
+    try {
+      const result = await createRideRequest(riderId, { lat: pickupCoords.lat, lon: pickupCoords.lng }, { lat: dropoffCoords.lat, lon: dropoffCoords.lng });
+      console.info('createRideRequest result', result);
+      if (result?.ride) {
+        toast({ title: 'Ride requested', description: 'Nearby drivers will be notified.', variant: 'default' });
+      } else {
+        const err = result?.error || 'unknown error';
+        console.error('createRideRequest failed', err);
+        toast({ title: 'Error', description: `Failed to create ride request: ${String(err?.message || err)}`, variant: 'destructive' });
+      }
+    } catch (e) {
+      console.error('handleConfirmRide error', e);
+      toast({ title: 'Error', description: 'Unexpected error while requesting ride. See console for details.', variant: 'destructive' });
     }
   };
 
@@ -189,13 +177,7 @@ const PassengerDashboard = () => {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    {/* Diagnostic banner: shows MapTiler key presence and geolocation permission state */}
-                    <div className="mb-3 text-sm text-muted-foreground">
-                      <strong>Runtime diagnostics:</strong>
-                      <div>MapTiler key present: {maptilerKeyPresent ? <span className="text-green-600">Yes</span> : <span className="text-red-600">No</span>}</div>
-                      <div>Geolocation permission: {geoPermission ?? <span className="text-yellow-600">unknown</span>}</div>
-                      <div className="text-xs text-muted-foreground">If MapTiler key is missing, set <code>VITE_MAPTILER_KEY</code> in Vercel and redeploy.</div>
-                    </div>
+                    {/* Diagnostics removed from UI per request */}
                     <MapComponent showDirections={true} onLocationSelect={handleLocationSelect} onRouteCalculated={handleRouteCalculated} />
 
                   {pickup && destination && (
